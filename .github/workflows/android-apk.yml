@@ -1,0 +1,81 @@
+
+name: LIVE PROTECT Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract project archive
+        run: |
+          ARCHIVE="LIVE_PROTECT_v0.8.7_projeto_atualizado_2026-11-05.zip"
+          test -s "$ARCHIVE"
+          mkdir -p project-src
+          unzip -q "$ARCHIVE" -d project-src
+          PROJECT_DIR="$(find project-src -name settings.gradle.kts -print -quit | xargs dirname)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r "$PROJECT_DIR/backend/requirements-dev.txt"
+          cd "$PROJECT_DIR"
+          python -m pytest -q
+          python -m compileall -q backend/live_protect backend/tests
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK
+        run: gradle --no-daemon --stacktrace -p "$PROJECT_DIR" clean :app:assembleDebug
+
+      - name: Verify APK
+        run: |
+          APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
+          echo "$BADGING" | grep -F "package: name='br.com.liveprotect'"
+          echo "$BADGING" | grep -F "application-label:'LIVE PROTECT'"
+          sha256sum "$APK" | tee app-debug.apk.sha256
+
+      - name: Publish APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LIVE-PROTECT-debug-v0.8.7
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+            app-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
