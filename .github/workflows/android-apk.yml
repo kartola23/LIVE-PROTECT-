@@ -27,10 +27,10 @@ jobs:
           test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+           - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
         with:
-          python-version: '3.12'
+          packages: 'platform-tools'
 
       - name: Test backend
         run: |
